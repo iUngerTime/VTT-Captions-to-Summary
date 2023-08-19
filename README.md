@@ -1,5 +1,9 @@
 # README: VTT Transcript Summarizer
 
+### Fun Disclaimer:
+
+*Most of this codebase was ChatGPT generated! Documentation, code snippets, git commits, etc. It was heavily directed. Finished in about 3 hours total, by a sleepy dev.*
+
 ## Description:
 The VTT Transcript Summarizer is an application that takes in a `.vtt` file, particularly from Microsoft Teams, cleans and processes it, and then provides a concise recap using the OpenAI's GPT-3.5-turbo model. The application extracts the essence of a transcript, highlighting key points, action items, and unanswered questions. This is particularly useful for those looking to quickly understand the outcomes of meetings without having to go through the entire transcript.
 
