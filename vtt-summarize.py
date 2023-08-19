@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Specify the file path
+file_path = 'samples/microsoftTeamsGeneratedTranscript.vtt'
+
 # set OpenAI info
 openai.api_key = os.getenv("OPENAI_API_KEY")
 aiModel = "gpt-3.5-turbo"
@@ -104,7 +107,9 @@ def split_to_fit_token_limit(message, max_tokens=3000):
 # Will batch the calls into a single API call
 def summarize_vtt(vtt_string):
     
+    print("Splitting the transcript into batches of %d tokens..."%tokenLimit)
     chatInputs = split_to_fit_token_limit(vtt_string, tokenLimit)
+    print("Finished splitting the transcript into batches")
     
     # where we keep track of the detected bullet points
     detectedBulletPoints = ""
@@ -112,7 +117,7 @@ def summarize_vtt(vtt_string):
     # get bullet points for each batch of conversation
     for i in range(len(chatInputs)):
         # print(listOfChatInputs[i])
-        print("Parsing a batched call for bullet points. Token quantity of: ", i, ":", num_tokens_from_messages(chatInputs[i]))
+        print("Parsing a batched call for bullet points. Token quantity of: ", num_tokens_from_messages(chatInputs[i]))
         
         batchedChatMessageTemplate = [
             {
@@ -154,7 +159,7 @@ def summarize_vtt(vtt_string):
         },
         {
         "role": "user",
-        "content": "Give me a clear and concise recap of this meeting in 2-3 sentences followed by a reorganization of the bullet points by their labels into 3 sections: unanswered questions, action items, and key points. If there is any duplicated information, include it once. If there are questions answered, do not add the question. Make it professional and easy to read."
+        "content": "First, write a clear summary of the meeting bullet points in 2-3 sentances, avoid redundant verbaige like 'key points include', 'action items include' and 'questions include'. Then, include a reorganization of the bullet points by their labels into 3 sections: key points, unanswered questions, and action items in that order. If there is any duplicated information, only include it once. Only add questions not answered by key pointst."
         },
     ]
     
@@ -170,13 +175,12 @@ def summarize_vtt(vtt_string):
     
     return finalResponse['choices'][0]['message']['content']
 
-# Specify the file path
-file_path = 'samples/algoConvo.vtt'
-
 # Call the function to read the file into a string
+print("Reading Microsoft Teams VTT transcript file...")
 file_string = read_clean_file(file_path)
+print("Finished cleaning transcript file...")
 
 summarization = summarize_vtt(file_string)
 
-print("\n\nRecap:\n\n")
+print("\n\n--RESULSTING RECAP--\n\n")
 print(summarization)
