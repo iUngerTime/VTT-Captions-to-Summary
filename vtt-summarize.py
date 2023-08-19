@@ -2,14 +2,22 @@ import openai
 import json
 import os
 import re
+import tiktoken
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# set API key
+# set OpenAI info
 openai.api_key = os.getenv("OPENAI_API_KEY")
-print("API Key:", os.getenv("OPENAI_API_KEY"))
+aiModel = "gpt-3.5-turbo"
+tokenLimit = 3000
+
+# simplify the encoding capture to one time
+try:
+    encoding = tiktoken.encoding_for_model(aiModel)
+except KeyError:
+    encoding = tiktoken.get_encoding("cl100k_base")
 
 # read VTT file
 def read_clean_file(file_path):
@@ -48,15 +56,119 @@ def read_clean_file(file_path):
 
     return cleaned_contents
 
+# Returns the number of tokens used by a list of messages.
+def num_tokens_from_messages(messages, model="gpt-3.5-turbo"):
+#   print ("Getting num tokens for messages", messages)
+
+  if model == "gpt-3.5-turbo":
+        if isinstance(messages, str):
+                return len(encoding.encode(messages))
+        elif isinstance(messages, list):
+            num_tokens = 0
+            for message in messages:
+                num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+                for key, value in message.items():
+                    num_tokens += len(encoding.encode(value))
+                    if key == "name":  # if there's a name, the role is omitted
+                        num_tokens += -1  # role is always required and always 1 token
+            num_tokens += 2  # every reply is primed with <im_start>assistant
+            return num_tokens
+        else:
+            raise ValueError("The input must either be a single string or a list of message dictionaries.")
+  else:
+        raise NotImplementedError(f"""num_tokens_from_messages() is not presently implemented for model {model}.
+  See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens.""")
+
+def split_to_fit_token_limit(message, max_tokens=3000):
+    valid_messages = []
+    words = message.split()
+    current_message = ""
+
+    while words:
+        word = words.pop(0)
+        temp_message = f"{current_message} {word}".strip()
+
+        # If adding the current word exceeds the token limit
+        if num_tokens_from_messages(temp_message) > max_tokens:
+            valid_messages.append(current_message)
+            current_message = word
+        else:
+            current_message = temp_message
+
+    # Add any remaining content
+    if current_message:
+        valid_messages.append(current_message)
+
+    return valid_messages
+
 # Will batch the calls into a single API call
 def summarize_vtt(vtt_string):
     
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt="%s - Given the following VTT file, give a bulleted list summarization of the conversation"%vtt_string
-    ) 
+    chatInputs = split_to_fit_token_limit(vtt_string, tokenLimit)
     
-    return response['choices'][0]['text']
+    # where we keep track of the detected bullet points
+    detectedBulletPoints = ""
+    
+    # get bullet points for each batch of conversation
+    for i in range(len(chatInputs)):
+        # print(listOfChatInputs[i])
+        print("Parsing a batched call for bullet points. Token quantity of: ", i, ":", num_tokens_from_messages(chatInputs[i]))
+        
+        batchedChatMessageTemplate = [
+            {
+                "role": "system",
+                "content": "You work for a custom software company, Buildable, as a project manager. Your job is to create concise recaps that are shared to clients and internally. You recieve meeting transcripts and summarize the important aspects of the meeting clearly. Always use a professional tone and attitude."
+            },
+            {
+                "role": "user",
+                "content": chatInputs[i]
+            },
+            {
+                "role": "user",
+                "content": "Give me bullet points to summarize this segment of a conversation. Each bullet point should be either a unanswered question, an action item, or a key point. Label each bullet point with the appropriate label."
+            },
+        ]
+        
+        batchedResponse = openai.ChatCompletion.create(
+            model=aiModel,
+            messages= batchedChatMessageTemplate,
+            temperature=1,
+            max_tokens=200,
+            top_p=1,
+            frequency_penalty=0.25,
+            presence_penalty=0.25
+        )
+        
+        # concatenate the batched responses
+        detectedBulletPoints += "\n%s"%batchedResponse['choices'][0]['message']['content']
+    
+    # Do a final summarization of the bullet points    
+    finalChatMessage = [
+        {
+        "role": "system",
+        "content": "You work for a professional software company as a program manager. You need to create concise recaps that can be shared to client and internal organizations. When provided with a transcript of a meeting, you summarize the important aspects of the meeting into key points, action items, and relevant follow up questions."
+        },
+        {
+        "role": "user",
+        "content": detectedBulletPoints
+        },
+        {
+        "role": "user",
+        "content": "Give me a clear and concise recap of this meeting in 2-3 sentences followed by a reorganization of the bullet points by their labels into 3 sections: unanswered questions, action items, and key points. If there is any duplicated information, include it once. If there are questions answered, do not add the question. Make it professional and easy to read."
+        },
+    ]
+    
+    finalResponse = openai.ChatCompletion.create(
+        model=aiModel,
+        messages= finalChatMessage,
+        temperature=1,
+        max_tokens=300,
+        top_p=1,
+        frequency_penalty=0.5,
+        presence_penalty=0
+    )
+    
+    return finalResponse['choices'][0]['message']['content']
 
 # Specify the file path
 file_path = 'samples/algoConvo.vtt'
@@ -66,4 +178,5 @@ file_string = read_clean_file(file_path)
 
 summarization = summarize_vtt(file_string)
 
+print("\n\nRecap:\n\n")
 print(summarization)
